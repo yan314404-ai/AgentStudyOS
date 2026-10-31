@@ -70,7 +70,7 @@ npm run dev
 6. 数据库是单文件 `backend/data/agent_study.db`，删掉即重置（下次启动自动重播种）；备份到 `backups/`
 7. 全局模型在「⚙️ 设置」页选（供应商 + 模型 + key），存 config.json 的 `provider` + `{provider}_model`/`{provider}_api_key`；三家默认 deepseek-chat / gpt-4o-mini / claude-sonnet-5；**Claude 无 json_object 原生模式**（结构化输出走提示词 + `_extract_json` 抽取兜底，失败如实上报）
 
-## 📊 当前进度与断点（2026-08-24 更新）
+## 📊 当前进度与断点（2026-10-30 交接更新，完整交接见 `交接提示词.md`）
 
 ### 已完成
 - **学习路线重构（用户 4 需求，全部完成）**：
@@ -120,6 +120,7 @@ npm run dev
 - 二期计划：**MCP / RAG / 向量库 / LangGraph**；Memory 二期（记忆进 AI 助手聊天页、面板手动加记忆）；以及规划中未实现的**间隔复习、推荐任务、导入导出、AI 流式输出**
 
 ### 进度记录（按时间倒序追加）
+- 2026-10-30：**项目交接**（用户更换 AI 继续开发）。核实：项目已迁至 `D:\Learn\Agent学习OS_Web版`（旧 `Desktop\Learn\` 不存在；桌面 `Agent学习OS.lnk` 已修好指向新路径，「停止Agent学习OS」快捷方式缺失未重建）；git 仓库 `yan314404-ai/AgentStudyOS` 干净且与 origin 同步（47ba55e）；**148/148 单测通过**；schema v8；后端在 8010 端口起服务冒烟 `/api/health`、`/api/version`、`/api/agent/runs` 均 200；真实库 tasks17/courses7/runs2/actions2，但 agent_plans=0、agent_memories=0（闭环与记忆尚无真实使用数据）。新增 **`交接提示词.md`**（给下一个 AI 的完整交接：目的/设计思路/进度/代码地图/命令/坑/待办/自查清单）。本文件进度记录补齐至移交状态。
 - 2026-08-25：**Phase 6 多模型（DeepSeek/GPT/Claude）完成**（llm.py 重构成 Provider 注册表 + 统一 HTTP 层合并两套 urllib；config.json 新 provider + 三家 {provider}_* 键、save_config 改合并当前文件防冲 key（审出并修的真 bug）；新增 chat_with_usage/structured_json/ping，Claude 顶层 system+max_tokens+同 role 合并+_extract_json 兜底（无 json_object 已知限制）；AgentLLM 委托删 _post、model 初始化即活动模型（修 agent_runs.model 空串 bug）；/api/settings 三端点 + GET /api/config 加 provider/model；「⚙️ 设置」页 + Chat/Agent 横幅跳 #/settings + Reports 内联表单收敛；148 单测全过（+31）+ build 成功 + temp DB 8001 冒烟 8/8（真实 DeepSeek key 测试连接 ok:true、切供应商保留旧 key、config 恢复））
 - 2026-08-25：**Phase 5 Agent Trace 回放视图完成**（独立「📜 Trace」页：RunRepo.list/get_run 暴露数字 id → #编号；Trace.jsx 左运行历史 + 右 Agent Run #id + 4 统计卡 + 9 类着色可折叠时间轴 + tool_call/result 合并 + 合成 Finish 行 + 2s 轮询；App.jsx 4 处注册；styles.css .trace-* + 9 个 .t-* 变体；零改动 Agent 运行逻辑、无新依赖；117 单测全过 + build 成功 + 进程内冒烟确认 id 字段 + **8000 后端重启实测 /runs 返回 id:2/id:1**）
 - 2026-08-24：**阶段 4 长期记忆完成**（迁移 v8 agent_memories + plan_items.suggested_time；services/memories.py；15→18 工具 get_memories/remember/forget_memory；registry 补参数失败 ok=0 审计；运行时注入 active 记忆到 observations + trace user_memories；planner 规则13-15/synthesizer 规则5；4 个记忆端点；Agent.jsx 记忆面板+计划时段徽章；117 单测全过；真实 DeepSeek 冒烟 ALL PASS——记住偏好 pending→confirm→安排学习，planner 真排 3 项进 20:00-23:00 高效时段带 suggested_time 3/3；临时库不污染真实库）+ **8000 后端已重启加载 v8 + 记忆端点 + 新前端构建**（打开即最新生效）
