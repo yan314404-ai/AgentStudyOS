@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from app import db, seed
+from app import db, seed, shutdown
 from app.routers import (
     agent,
     algorithms,
@@ -73,6 +73,23 @@ def backup():
 @app.get("/api/health")
 def health():
     return {"ok": True, "db": str(db.get_db_path())}
+
+
+@app.post("/api/shutdown")
+def shutdown_app():
+    """关闭本机服务（网页「关闭服务」按钮调用）。
+
+    有 Agent run 正在跑时不关（返回 409），避免用户误点打断正在花钱的 LLM 调用。
+    正常情况返回 200 + shutting_down，进程在约 0.8 秒后退出。
+    """
+    if agent.has_running_run():
+        return JSONResponse(
+            {"ok": False, "detail": "有 Agent 任务正在运行，等它结束或先取消再关闭"},
+            status_code=409,
+        )
+    if not shutdown.request_shutdown():
+        return JSONResponse({"ok": False, "detail": "服务已在关闭中"}, status_code=409)
+    return {"ok": True, "detail": "服务正在关闭，可以关掉这个窗口了"}
 
 
 @app.get("/api/version")

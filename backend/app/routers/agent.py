@@ -29,6 +29,11 @@ def recover_stale_runs() -> int:
     return RunRepo.recover_stale_runs()
 
 
+def has_running_run() -> bool:
+    """当前是否有 run 正在跑（给「关闭服务」判断能不能关）。"""
+    return RunRepo.has_running()
+
+
 def maybe_auto_review() -> str | None:
     """半自动提醒：有未复盘的过去计划且无 run 在跑 → 后台自动触发一次复盘 run。
 

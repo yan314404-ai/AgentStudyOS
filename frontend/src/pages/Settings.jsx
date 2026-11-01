@@ -4,6 +4,7 @@ import { toast } from '../toast.js'
 
 // Phase 6 · 多模型设置：选供应商 + 模型 + API key + 测试连接。
 // 全站只设一个全局模型：Agent / 聊天 / 周月报共用。key 只存本机 config.json，永不回传。
+// 页尾还有「关闭服务」：本机单进程服务，点一下直接退出，替代桌面上的停止快捷方式。
 
 export default function Settings() {
   const [providers, setProviders] = useState([])   // 供应商元数据
@@ -17,6 +18,8 @@ export default function Settings() {
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testRes, setTestRes] = useState(null)     // { ok, msg } 或 null
+  const [stopping, setStopping] = useState(false)
+  const [stopped, setStopped] = useState(false)    // 已关闭：整页换成提示
 
   const load = () => api.get('/settings')
     .then((d) => {
@@ -63,6 +66,41 @@ export default function Settings() {
       setTestRes(null)
       load()
     } catch (e) { toast(e.message) } finally { setSaving(false) }
+  }
+
+  // 关闭服务：本机单进程，后端收到后约 0.8 秒退出。成功后整页换成「已关闭」提示。
+  const stopService = async () => {
+    if (!confirm('关闭 Agent 学习 OS 服务？\n\n关闭后这个窗口就用不了了，下次点桌面图标重新启动。\n（数据都已存好，不会丢）')) return
+    setStopping(true)
+    try {
+      await api.post('/shutdown')
+      setStopped(true)
+    } catch (e) {
+      const msg = String(e.message || '')
+      // 后端正在退出时连接会被重置，这种情况其实已经关了
+      if (msg.includes('无法连接') || msg.includes('Failed to fetch') || msg.includes('fetch')) {
+        setStopped(true)
+        return
+      }
+      // 409 时后端回的是 JSON（如「有 Agent 任务正在运行…」），取出 detail 给人看
+      let detail = msg
+      try { detail = JSON.parse(msg).detail || msg } catch { /* 不是 JSON 就原样显示 */ }
+      toast(detail || '关闭失败')
+    } finally { setStopping(false) }
+  }
+
+  if (stopped) {
+    return (
+      <div className="settings-page">
+        <div className="card">
+          <h3>👋 服务已关闭</h3>
+          <p className="muted">
+            后端进程已经退出，这个窗口可以直接关掉。
+            下次要用，双击桌面上的 <b>Agent学习OS</b> 图标重新启动即可。
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -138,6 +176,19 @@ export default function Settings() {
             )}
           </>
         )}
+      </div>
+
+      <div className="card">
+        <h3>🔌 关闭服务</h3>
+        <p className="muted">
+          Agent 学习 OS 是一个本机服务，会一直留在后台。想彻底关掉（比如关机前、或换了电脑要用）
+          就点下面这个按钮，不用再去找桌面上的停止图标。数据都已存好，关掉不会丢。
+        </p>
+        <div className="row-actions">
+          <button className="btn danger sm" onClick={stopService} disabled={stopping}>
+            {stopping ? '正在关闭…' : '关闭服务'}
+          </button>
+        </div>
       </div>
     </div>
   )
