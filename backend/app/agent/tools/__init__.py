@@ -190,7 +190,7 @@ def _specs() -> list:
         ),
         ToolSpec(
             name="get_plan_vs_actual",
-            description="某天计划 vs 实际执行对比（默认最新）：planned/actual/deviation_pct/verdict(over计划过量|under不足|ok)",
+            description="某天计划 vs 实际执行对比（默认最新）：planned/actual/deviation_pct/verdict(over计划过量|under不足|ok)。items 每项含 item_id（计划项 id，调 submit_review 的 adjust/remove 用它）和 task_id（任务 id）",
             args_handler=lambda args: {"plan_date": (args.get("plan_date") or "").strip()},
             handler=plan_tools.get_plan_vs_actual,
             permission=Permission.READ,
@@ -230,7 +230,7 @@ def _specs() -> list:
                 "plan_date": {"type": "string", "description": "必填，复盘的计划执行日 YYYY-MM-DD"},
                 "verdict": {"type": "string", "description": "必填，判定：计划过量/合理/不足"},
                 "reasoning": {"type": "string", "description": "偏差分析与调整依据"},
-                "adjustments": {"type": "array", "description": "待确认调整，action ∈ adjust(item_id,expected_minutes)/remove(item_id)/add(title,category,expected_minutes)/next_plan(plan_date,items[{title,category,expected_minutes}])"},
+                "adjustments": {"type": "array", "description": "待确认调整，action ∈ adjust(item_id,expected_minutes)/remove(item_id)/add(title,category,expected_minutes)/next_plan(plan_date,items[{title,category,expected_minutes}])。**item_id 必须是 get_plan_vs_actual 返回的 items[].item_id（计划项 id），不是 task_id**"},
             }, "required": ["plan_date", "verdict"]},
         ),
         # ---------- 记忆（Phase 4 长期记忆） ----------

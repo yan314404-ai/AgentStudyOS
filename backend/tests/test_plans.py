@@ -118,6 +118,22 @@ class TestPlanVsActual(unittest.TestCase):
         tsvc.add_session(t["id"], 25, log_date=Y, source="timer")
         self.assertEqual(psvc.compute_plan_vs_actual(Y)["actual_total"], 65)
 
+    def test_items_expose_item_id(self):
+        """回归：items 必须同时给 item_id（计划项 id）和 task_id。
+
+        历史 bug：只给 task_id，Agent 唯一的对比工具就是它，于是模型把 task_id
+        填进 submit_review 的 item_id，confirm 时 400「调整项 18 不存在」。
+        """
+        t = self._plan_with(120, 0)
+        items = psvc.compute_plan_vs_actual(Y)["items"]
+        self.assertEqual(len(items), 1)
+        self.assertIn("item_id", items[0])
+        self.assertIn("task_id", items[0])
+        self.assertEqual(items[0]["task_id"], t["id"])
+        # item_id 是 agent_plan_items.id，与 task_id 是不同的号段
+        self.assertEqual(items[0]["item_id"], psvc.get_plan(Y)["items"][0]["id"])
+        self.assertNotEqual(items[0]["item_id"], items[0]["task_id"])
+
 
 class TestReviewLifecycle(unittest.TestCase):
     def setUp(self):
@@ -207,6 +223,42 @@ class TestReviewLifecycle(unittest.TestCase):
         self.assertEqual(plan["review_status"], "rejected")
         self.assertEqual(plan["adjustments"], [])
         self.assertEqual(len(crud.fetch_all("tasks")), n_before)
+
+    def test_confirm_is_atomic_on_bad_item_id(self):
+        """回归：confirm 必须先预检再写库，不能「改了一半再报错」。
+
+        历史 bug：逐条 _apply_adjustment 各自 commit，第 2 条 item_id 不存在时
+        第 1 条已落库，review_status 仍是 pending —— 用户看到 400 却已被改了一半，
+        且重试会重复应用。
+        """
+        p = self._plan()
+        first_id = p["items"][0]["id"]
+        before_minutes = p["items"][0]["expected_minutes"]
+        psvc.submit_review(Y, "计划过量", "原子性", [
+            {"action": "adjust", "item_id": first_id, "expected_minutes": 11},
+            {"action": "adjust", "item_id": 999999, "expected_minutes": 22},
+        ])
+        with self.assertRaises(psvc.BadRequest):
+            psvc.confirm_review(p["id"])
+        after = psvc.get_plan(Y)
+        # 第一条不能被写进去
+        self.assertEqual(after["items"][0]["expected_minutes"], before_minutes)
+        self.assertEqual(after["review_status"], "pending")
+
+    def test_submit_review_accepts_task_id_as_item_id(self):
+        """兼容：模型把 task_id 当 item_id 提交时，自动翻译成计划项 id。"""
+        p = self._plan()
+        task_id = p["items"][0]["task_id"]
+        item_id = p["items"][0]["id"]
+        self.assertNotEqual(task_id, item_id)
+        plan = psvc.submit_review(Y, "计划过量", "task_id 兼容", [
+            {"action": "adjust", "item_id": task_id, "expected_minutes": 45},
+        ])
+        # 存进去的应该是计划项 id，不是 task_id
+        self.assertEqual(plan["adjustments"][0]["item_id"], item_id)
+        applied = psvc.confirm_review(p["id"])
+        self.assertEqual(applied["review_status"], "applied")
+        self.assertEqual(applied["items"][0]["expected_minutes"], 45)
 
 
 class TestFindUnreviewed(unittest.TestCase):

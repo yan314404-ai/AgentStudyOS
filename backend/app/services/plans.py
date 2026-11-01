@@ -125,6 +125,7 @@ def compute_plan_vs_actual(plan_date: str) -> dict | None:
     else:
         verdict = "ok"
     items = [{
+        "item_id": i["id"],
         "task_id": i["task_id"],
         "title": i["title"],
         "expected": i["expected_minutes"],
@@ -315,6 +316,27 @@ def _validate_adjustments(adjustments) -> list:
     return out
 
 
+def _resolve_item_ids(plan: dict, adj: list) -> list:
+    """把 adjust/remove 里的 item_id 归一到本计划的计划项 id。
+
+    为什么需要：Agent 唯一的对比工具 get_plan_vs_actual 历史上只返回 task_id，
+    模型因此常把 task_id 填进 item_id（真实踩过：任务 18/19/20 被当成计划项 id
+    提交，confirm 时 400）。这里做兼容：值本身就是计划项 id 则原样保留；否则
+    若等于本计划某计划项的 task_id，则翻译成对应计划项 id；都对不上则保留原值，
+    由 confirm 前的预检给出明确报错。
+    """
+    own_ids = {i["id"] for i in plan.get("items") or []}
+    by_task = {i["task_id"]: i["id"] for i in plan.get("items") or [] if i["task_id"] is not None}
+    out = []
+    for a in adj:
+        if a.get("action") in ("adjust", "remove"):
+            iid = a.get("item_id")
+            if iid not in own_ids and iid in by_task:
+                a = {**a, "item_id": by_task[iid]}
+        out.append(a)
+    return out
+
+
 def submit_review(plan_date: str, verdict: str, reasoning: str = "",
                   adjustments: list = None, run_id: str = "") -> dict:
     """提交复盘：记录 verdict + 待确认调整（不生效）。"""
@@ -328,7 +350,7 @@ def submit_review(plan_date: str, verdict: str, reasoning: str = "",
     if not verdict:
         raise BadRequest("缺少必填参数 verdict")
     reasoning = (reasoning or "").strip()
-    adj = _validate_adjustments(adjustments)
+    adj = _resolve_item_ids(plan, _validate_adjustments(adjustments))
     conn = connect()
     try:
         conn.execute(
@@ -420,6 +442,25 @@ def _apply_adjustment(plan: dict, adj: dict, run_marker: str) -> None:
                    {"plan_date": adj["plan_date"], "plan_id": new_plan["id"]})
 
 
+def _precheck_adjustments(plan: dict) -> None:
+    """确认前预检：所有 adjust/remove 的 item_id 必须属于本计划。
+
+    为什么需要：confirm_review 逐条应用，每条各自 commit。若第 N 条才失败
+    （item_id 不存在），前面 N-1 条已经落库，而 review_status 仍是 pending，
+    用户看到 400 却已被改了一半，且重试会重复应用。预检把「引用不存在的计划项」
+    这类确定性错误挡在任何写库动作之前，让确认要么全成功、要么不动数据。
+    """
+    own_ids = {i["id"] for i in plan.get("items") or []}
+    for a in plan.get("adjustments") or []:
+        if a.get("action") in ("adjust", "remove"):
+            iid = a.get("item_id")
+            if iid not in own_ids:
+                raise BadRequest(
+                    f"调整项 {iid} 不存在（本计划的计划项 id 为 "
+                    f"{', '.join(str(x) for x in sorted(own_ids)) or '空'}）"
+                )
+
+
 def confirm_review(plan_id: int, audit_run_id: str = "") -> dict:
     """应用待确认调整（用户确认）：每步审计，最后计划 reviewed + review_status=applied。"""
     plan = _get_plan_by_id(plan_id)
@@ -427,6 +468,7 @@ def confirm_review(plan_id: int, audit_run_id: str = "") -> dict:
         raise BadRequest("计划不存在")
     if plan["review_status"] != "pending":
         raise BadRequest("该计划没有待确认的复盘调整")
+    _precheck_adjustments(plan)
     run_marker = audit_run_id or (plan.get("review_run_id") or f"confirm:{plan_id}")
     for a in plan.get("adjustments") or []:
         _apply_adjustment(plan, a, run_marker)

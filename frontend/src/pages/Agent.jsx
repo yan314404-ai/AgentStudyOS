@@ -23,10 +23,16 @@ const PLAN_BADGE = {
   reviewed: { text: '已复盘', cls: 'badge plan-badge-reviewed' },
 }
 const VERDICT_LABEL = { over: '计划过量', under: '计划不足', ok: '执行合理' }
-const adjustLabel = (a) => {
+// 把调整项里的 item_id 翻译成任务名。原来直接显示「计划项 #4」，
+// 用户看不懂这个内部 id；查不到（比如该项已被移除）才回退到 id。
+const itemTitle = (items, itemId) => {
+  const hit = (items || []).find((it) => it.id === itemId)
+  return hit ? `「${hit.title}」` : ` #${itemId}`
+}
+const adjustLabel = (a, items) => {
   switch (a.action) {
-    case 'adjust': return `调整计划项 #${a.item_id} 预期为 ${a.expected_minutes} 分钟`
-    case 'remove': return `移除计划项 #${a.item_id}`
+    case 'adjust': return `调整${itemTitle(items, a.item_id)}预期为 ${a.expected_minutes} 分钟`
+    case 'remove': return `移除${itemTitle(items, a.item_id)}`
     case 'add': return `新增任务「${a.title}」${a.expected_minutes} 分钟`
     case 'next_plan': return `生成 ${a.plan_date} 的新计划（${a.items ? a.items.length : 0} 项）`
     default: return short(a)
@@ -417,7 +423,7 @@ export default function Agent() {
                     <div className="review-adjustments">
                       {p.adjustments.length === 0
                         ? <div className="muted">无调整项</div>
-                        : p.adjustments.map((a, i) => <div key={i} className="muted">· {adjustLabel(a)}</div>)}
+                        : p.adjustments.map((a, i) => <div key={i} className="muted">· {adjustLabel(a, p.items)}</div>)}
                     </div>
                     <div className="review-actions">
                       <button className="btn primary sm" onClick={() => confirmPlan(p.id)}>✅ 确认调整</button>

@@ -70,7 +70,7 @@ npm run dev
 6. 数据库是单文件 `backend/data/agent_study.db`，删掉即重置（下次启动自动重播种）；备份到 `backups/`
 7. 全局模型在「⚙️ 设置」页选（供应商 + 模型 + key），存 config.json 的 `provider` + `{provider}_model`/`{provider}_api_key`；三家默认 deepseek-chat / gpt-4o-mini / claude-sonnet-5；**Claude 无 json_object 原生模式**（结构化输出走提示词 + `_extract_json` 抽取兜底，失败如实上报）
 
-## 📊 当前进度与断点（2026-10-30 交接更新，完整交接见 `交接提示词.md`）
+## 📊 当前进度与断点（2026-11-01 交接更新，完整交接见 `交接提示词.md`）
 
 ### 已完成
 - **学习路线重构（用户 4 需求，全部完成）**：
@@ -112,14 +112,16 @@ npm run dev
   - **验证**：148/148 单测全过（117 原有 + 新增 llm 配置 9 / HTTP 15 / provider 6）；`npm run build` 成功（47 模块）；temp DB 8001 HTTP 冒烟 **8/8 PASS**（含 **真实 DeepSeek key 测试连接 ok:true** + 切 openai 后旧 deepseek key 保留 + anthropic 无 key 不泄漏 + config.json 结束恢复）
 
 ### 断点 / 待办
+- **复盘闭环两个真实 bug 已修（2026-11-01）**：见下方进度记录。真实库现有 1 份计划（id=1，2026-11-02 生效中，3 项 180 分钟）和 1 条 active 记忆；**下次可用真实库走一遍「昨天计划 → 点🤖复盘 → 确认调整」验收**
 - **Phase 6（多模型）已完成，后端已重启 + 新前端构建**（2026-08-25）：去「⚙️ 设置」页选供应商/模型/key + 「测试连接」；各 tab 显示 ✅ 已配置徽章。当前活动供应商仍是 deepseek（config.json 只 deepseek_* 三键）。**建议验证**：去 openai/console 或 anthropic/console 拿 key 配上，跑一次 Agent / AI 助手 / 周月报看是否切到对应模型（Claude 若「未返回合法 JSON」是已知限制，run 会落 failed 且显示内容预览）
 - **Phase 5（Trace 回放页）已完成**：去「📜 Trace」页看历史运行回放（真实库现有 run 6b88c55 等可直接看，显示为 #2/#1）；新跑一次 run 会展示完整 9 类时间轴，可截图放 README
-- **阶段 4（长期记忆）已跑通**：真实库无记忆，去 Agent 页对 Agent 说「记住：平时工作日 20:00-23:00 学习效率最高」→ 面板出现待确认 → 点「✅ 确认生效」→ 再「安排明天的学习」，计划卡显示 ⏰ 建议时段
-- **阶段 3（跨天计划-执行-复盘-调整闭环）已跑通，待用户验收**：真实库还没有任何计划/复盘数据—— 让 Agent「安排明天的学习」，第二天学完点「🤖 复盘」体验完整闭环
+- **阶段 4（长期记忆）已跑通并已有真实数据（2026-11-01 补）**：真实库现有 1 条 active 记忆（key=「学习时段」，工作日 20:00-23:00 高效）。要再体验：Agent 页说「记住：…」→ 面板出现待确认 → 点「✅ 确认生效」→ 再「安排明天的学习」，计划卡显示 ⏰ 建议时段
+- **阶段 3（跨天计划-执行-复盘-调整闭环）已跑通，真实库有 1 份计划但尚未复盘过（2026-11-01 补）**：真实库 plan id=1（2026-11-02 生效中）。2026-11-01 已修掉复盘确认的两个 bug，**下次可放心用真实库走一遍完整验收**：让 Agent「安排明天的学习」→ 第二天学完点「🤖 复盘」→「✅ 确认调整」
 - 阶段 2 遗留验收：真实库曾在冒烟中被改过（任务 12 +120 分钟、任务 6 进度锁定 50%），可在 Agent 页历史 run 看「🧾 操作记录」
 - 二期计划：**MCP / RAG / 向量库 / LangGraph**；Memory 二期（记忆进 AI 助手聊天页、面板手动加记忆）；以及规划中未实现的**间隔复习、推荐任务、导入导出、AI 流式输出**
 
 ### 进度记录（按时间倒序追加）
+- 2026-11-01：**复盘闭环两个真实 bug 修复 + 真实库跑通记忆/计划闭环**。① 用真实库（8000）驱动 Agent 跑通记忆闭环（记住偏好→pending→confirm→active）与计划闭环（安排明天学习→plan 3 项全排进 20:00-23:00 高效时段，trace 第 5 条 `user_memories` 证明记忆真实注入 prompt）；真实库现有 agent_plans=1（id=1，2026-11-02）/agent_plan_items=3/agent_memories=1（active）。② 临时库（`AGENT_STUDY_DB`+8011，验证后已删库）跑 9 步复盘闭环，暴露并修掉两个 bug：**BUG-1** `compute_plan_vs_actual` 的 items 只返回 `task_id` 不返回 `item_id`，而 `submit_review` 的 `adjust/remove` 要的是计划项 id——模型唯一能看到的 id 就是 task_id，于是必然误填，confirm 时 400「调整项 18 不存在」；**修复**：items 增加 `item_id`、两个工具 description 明确 item_id 来源、新增 `_resolve_item_ids()` 兼容层（模型误填 task_id 时自动翻译成计划项 id，都对不上才报错）。**BUG-2** `confirm_review` 逐条 `_apply_adjustment` 各自 commit，第 2 条失败时第 1 条已落库、`review_status` 仍 pending——用户看到 400 却已被改了一半，重试会重复应用；**修复**：新增 `_precheck_adjustments()`，在任何写库前校验所有 adjust/remove 的 item_id 都属于本计划。③ 前端 `Agent.jsx` 复盘调整项文案由「调整计划项 #4」改为显示任务名「调整「Python 基础…」预期为 30 分钟」。④ 验证：**151/151 单测全过**（148 原有 + 3 个新回归用例，真实库 mtime 未变）；临时库 8011 真实 DeepSeek 端到端复盘闭环跑通——模型提交 item_id 4/5/6（计划项 id）→ confirm **200 applied**（修复前此处必 400）→ 5 条 confirm 审计全 ok；`npm run build` 成功（47 模块，`index-BxweXTCF.js`），`/api/version` 已变、8000 首页引用新 bundle
 - 2026-10-30：**项目交接**（用户更换 AI 继续开发）。核实：项目已迁至 `D:\Learn\Agent学习OS_Web版`（旧 `Desktop\Learn\` 不存在；桌面 `Agent学习OS.lnk` 已修好指向新路径，「停止Agent学习OS」快捷方式缺失未重建）；git 仓库 `yan314404-ai/AgentStudyOS` 干净且与 origin 同步（47ba55e）；**148/148 单测通过**；schema v8；后端在 8010 端口起服务冒烟 `/api/health`、`/api/version`、`/api/agent/runs` 均 200；真实库 tasks17/courses7/runs2/actions2，但 agent_plans=0、agent_memories=0（闭环与记忆尚无真实使用数据）。新增 **`交接提示词.md`**（给下一个 AI 的完整交接：目的/设计思路/进度/代码地图/命令/坑/待办/自查清单）。本文件进度记录补齐至移交状态。
 - 2026-08-25：**Phase 6 多模型（DeepSeek/GPT/Claude）完成**（llm.py 重构成 Provider 注册表 + 统一 HTTP 层合并两套 urllib；config.json 新 provider + 三家 {provider}_* 键、save_config 改合并当前文件防冲 key（审出并修的真 bug）；新增 chat_with_usage/structured_json/ping，Claude 顶层 system+max_tokens+同 role 合并+_extract_json 兜底（无 json_object 已知限制）；AgentLLM 委托删 _post、model 初始化即活动模型（修 agent_runs.model 空串 bug）；/api/settings 三端点 + GET /api/config 加 provider/model；「⚙️ 设置」页 + Chat/Agent 横幅跳 #/settings + Reports 内联表单收敛；148 单测全过（+31）+ build 成功 + temp DB 8001 冒烟 8/8（真实 DeepSeek key 测试连接 ok:true、切供应商保留旧 key、config 恢复））
 - 2026-08-25：**Phase 5 Agent Trace 回放视图完成**（独立「📜 Trace」页：RunRepo.list/get_run 暴露数字 id → #编号；Trace.jsx 左运行历史 + 右 Agent Run #id + 4 统计卡 + 9 类着色可折叠时间轴 + tool_call/result 合并 + 合成 Finish 行 + 2s 轮询；App.jsx 4 处注册；styles.css .trace-* + 9 个 .t-* 变体；零改动 Agent 运行逻辑、无新依赖；117 单测全过 + build 成功 + 进程内冒烟确认 id 字段 + **8000 后端重启实测 /runs 返回 id:2/id:1**）
