@@ -198,8 +198,14 @@ def run_eval(kinds=KINDS_CHEAP, limit: int = 0) -> dict:
 
     kinds 默认只跑零成本的 intent/dialog；传 ("intent","dialog","run") 才跑真实 Agent。
     run 类会写业务表，建议在临时库上跑（AGENT_STUDY_DB 指临时文件）。
+
+    未知 kind 直接报错而不是静默过滤：调用方把 ("run",) 敲成 ("runs",) 时，
+    静默兜底会跑一轮零成本用例并返回 100% —— 看起来「真实运行也过了」，实际根本没跑。
     """
-    kinds = tuple(k for k in (kinds or KINDS_CHEAP) if k in KINDS_ALL) or KINDS_CHEAP
+    kinds = tuple(kinds or KINDS_CHEAP)
+    bad = [k for k in kinds if k not in KINDS_ALL]
+    if bad:
+        raise ValueError(f"未知用例类型：{'/'.join(bad)}（可选 {'/'.join(KINDS_ALL)}）")
     seed_cases()
     conn = connect()
     try:

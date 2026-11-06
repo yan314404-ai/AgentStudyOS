@@ -329,6 +329,20 @@ def close_conversation(conv_id: str):
     return {"conversation": cvs.close(conv_id)}
 
 
+def _conv_write(conv_id: str, pending: dict | None, reply: str,
+                intent: dict, run_id: str = "") -> None:
+    """写挂起槽位 + 助手回复气泡。
+
+    会话在用户输入到这一行之间被关掉（前端点「新会话」、多标签页）时，
+    服务层会抛 BadRequest —— 这里翻译成 400，而不是让它变成 500。
+    """
+    try:
+        cvs.set_pending(conv_id, pending)
+        cvs.add_turn(conv_id, "assistant", reply, intent, run_id)
+    except cvs.BadRequest as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/chat")
 def chat(body: dict):
     """一轮对话：识别意图 → 缺槽位就追问（挂起） / 齐了就发起 run。
@@ -341,14 +355,20 @@ def chat(body: dict):
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(400, "text 不能为空")
-    conv = cvs.get_or_create((body.get("conv_id") or "").strip())
+    try:
+        conv = cvs.get_or_create((body.get("conv_id") or "").strip())
+    except cvs.BadRequest as e:
+        raise HTTPException(400, str(e))
     conv_id = conv["conv_id"]
 
     # 有挂起槽位时优先并入（用户是在回答上一轮追问）
     pending = conv.get("pending") or {}
     result = intent_mod.merge_pending(pending, text) if pending else intent_mod.classify(text)
 
-    cvs.add_turn(conv_id, "user", text, result)
+    try:
+        cvs.add_turn(conv_id, "user", text, result)
+    except cvs.BadRequest as e:
+        raise HTTPException(400, str(e))
     base = {
         "conv_id": conv_id,
         "intent": result["intent"],
@@ -362,15 +382,14 @@ def chat(body: dict):
     # 1) 还缺槽位 → 追问并挂起
     if result["missing"]:
         question = intent_mod.next_question(result["intent"], result["missing"])
-        cvs.set_pending(conv_id, {"intent": result["intent"], "slots": result["slots"]})
-        cvs.add_turn(conv_id, "assistant", question, {"kind": "ask"})
+        _conv_write(conv_id, {"intent": result["intent"], "slots": result["slots"]},
+                    question, {"kind": "ask"})
         return {**base, "action": "ask", "question": question, "run_id": ""}
 
     # 2) 普通对话 → 不花钱，直接回
     if result["intent"] == intent_mod.INTENT_CHAT:
         reply = "我主要负责学习计划：安排计划、复盘执行、记录学习时长、记住你的偏好。你可以直接说「安排明天的学习」。"
-        cvs.set_pending(conv_id, None)
-        cvs.add_turn(conv_id, "assistant", reply, {"kind": "answer"})
+        _conv_write(conv_id, None, reply, {"kind": "answer"})
         return {**base, "action": "answer", "question": "", "reply": reply, "run_id": ""}
 
     # 3) 槽位齐了 → 发起 run
@@ -383,8 +402,7 @@ def chat(body: dict):
         if RunRepo.has_running():
             raise HTTPException(409, "Agent 正在执行中，请等待完成后再发起新的运行")
         run_id = AgentRuntime().run_async(goal, available_time, intent=result["intent"])
-    cvs.set_pending(conv_id, None)
-    cvs.add_turn(conv_id, "assistant", f"收到，开始{result['label']}：{goal}", {"kind": "run"}, run_id)
+    _conv_write(conv_id, None, f"收到，开始{result['label']}：{goal}", {"kind": "run"}, run_id)
     return {**base, "action": "run", "question": "", "goal": goal, "run_id": run_id}
 
 

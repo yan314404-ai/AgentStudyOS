@@ -97,10 +97,15 @@ class TestEvalRunner(unittest.TestCase):
                             for e in eval_runner.list_evals()))
         self.assertIsNone(eval_runner.get_eval("nope"))
 
-    def test_unknown_kind_falls_back_to_cheap(self):
-        report = eval_runner.run_eval(kinds=("bogus",))
-        self.assertGreater(report["total"], 0)
-        self.assertNotIn("bogus", {r["kind"] for r in report["results"]})
+    def test_unknown_kind_raises(self):
+        """未知 kind 必须报错，不能静默兜底成零成本用例。
+
+        静默过滤的危险：调用方把 ("run",) 敲成 ("runs",) 时，会跑一轮
+        intent/dialog 用例并返回 100%，看起来「真实运行也过了」，其实根本没跑。
+        """
+        with self.assertRaises(ValueError) as ctx:
+            eval_runner.run_eval(kinds=("bogus",))
+        self.assertIn("bogus", str(ctx.exception))
 
 
 class TestUsageDashboard(unittest.TestCase):

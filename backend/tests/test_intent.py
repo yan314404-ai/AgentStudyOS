@@ -170,6 +170,42 @@ class TestConversations(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["turn_count"], 1)
 
+    def test_create_is_idempotent(self):
+        """重复 conv_id 不抛 UNIQUE 冲突，返回原会话。
+
+        前端「新会话」每次都生成新 id，但双击、重试、外部调用都可能撞同一个 id，
+        抛 IntegrityError 会变成 500。
+        """
+        a = cvs.create()
+        b = cvs.create(a["conv_id"])
+        self.assertEqual(a["conv_id"], b["conv_id"])
+        cvs.add_turn(a["conv_id"], "user", "hi")
+        self.assertEqual(len(cvs.get(a["conv_id"])["turns"]), 1)
+
+    def test_closed_conv_rejects_pending_and_turns(self):
+        """已结束的会话不能再挂起、不能追加轮次（close 要真的有约束力）。"""
+        conv = cvs.create()
+        cvs.close(conv["conv_id"])
+        with self.assertRaises(cvs.BadRequest):
+            cvs.set_pending(conv["conv_id"], {"intent": "plan"})
+        with self.assertRaises(cvs.BadRequest):
+            cvs.add_turn(conv["conv_id"], "user", "还在吗")
+        self.assertEqual(cvs.get(conv["conv_id"])["pending"], {})
+
+    def test_get_or_create_skips_closed(self):
+        """close 后再 get_or_create 应开新会话，而不是复用已关闭的。"""
+        old = cvs.create()
+        cvs.close(old["conv_id"])
+        new = cvs.get_or_create(old["conv_id"])
+        self.assertNotEqual(new["conv_id"], old["conv_id"])
+        self.assertEqual(new["status"], "active")
+
+    def test_turn_on_missing_conv_rejected(self):
+        with self.assertRaises(cvs.BadRequest):
+            cvs.add_turn("cv_nope", "user", "hi")
+        with self.assertRaises(cvs.BadRequest):
+            cvs.set_pending("cv_nope", {"intent": "plan"})
+
 
 if __name__ == "__main__":
     unittest.main()
