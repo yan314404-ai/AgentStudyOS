@@ -84,7 +84,7 @@ class TestTools2(unittest.TestCase):
         self.assertEqual(act["after"]["task_id"], data["task_id"])
 
     def test_add_session_audited(self):
-        t = self._db_task("Git + Linux + HTTP/JSON/API")
+        t = self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")
         data = self._ok("add_session", {"task_id": t["id"], "minutes": 60}, self.ctx)
         self.assertEqual(data["task"]["spent_minutes"], (t["spent_minutes"] or 0) + 60)
         self.assertEqual(len(self.ctx.actions), 1)
@@ -93,7 +93,7 @@ class TestTools2(unittest.TestCase):
         self.assertEqual(act["after"]["task"]["task_id"], t["id"])
 
     def test_update_task_progress_locks_manual(self):
-        t = self._db_task("Git + Linux + HTTP/JSON/API")
+        t = self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")
         data = self._ok("update_task", {"task_id": t["id"], "progress": 50}, self.ctx)
         self.assertEqual(data["progress"], 50)
         row = crud.fetch_one("tasks", t["id"])
@@ -102,18 +102,18 @@ class TestTools2(unittest.TestCase):
         self.assertEqual(self.ctx.actions[0]["before"]["task_id"], t["id"])
 
     def test_update_task_restore_auto(self):
-        t = self._db_task("Git + Linux + HTTP/JSON/API")
+        t = self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")
         data = self._ok("update_task", {"task_id": t["id"], "manual_progress": -1}, self.ctx)
         self.assertEqual(data["manual_progress"], -1)
 
     def test_complete_task(self):
-        t = self._db_task("Git + Linux + HTTP/JSON/API")
+        t = self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")
         data = self._ok("complete_task", {"task_id": t["id"]}, self.ctx)
         self.assertEqual(data["status"], "已完成")
         self.assertEqual(data["progress"], 100)
 
     def test_create_review_task(self):
-        t = self._db_task("Git + Linux + HTTP/JSON/API")
+        t = self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")
         data = self._ok("create_review_task", {"task_id": t["id"], "reason": "记不清"}, self.ctx)
         self.assertEqual(data["title"], "复习：" + t["title"])
         self.assertEqual(len(self.ctx.actions), 1)
@@ -128,8 +128,8 @@ class TestTools2(unittest.TestCase):
         self.assertIn("TaskNotFound", self.ctx.actions[0]["error"])
 
     def test_write_tool_not_cached(self):
-        r1 = self.reg.execute("add_session", {"task_id": self._db_task("Git + Linux + HTTP/JSON/API")["id"], "minutes": 5}, self.ctx)
-        r2 = self.reg.execute("add_session", {"task_id": self._db_task("Git + Linux + HTTP/JSON/API")["id"], "minutes": 5}, self.ctx)
+        r1 = self.reg.execute("add_session", {"task_id": self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")["id"], "minutes": 5}, self.ctx)
+        r2 = self.reg.execute("add_session", {"task_id": self._db_task("工程基本功：Git / Linux / HTTP / JSON / Docker")["id"], "minutes": 5}, self.ctx)
         self.assertFalse(r1.get("cached"))
         self.assertFalse(r2.get("cached"))
 

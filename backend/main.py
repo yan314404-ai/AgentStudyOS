@@ -36,6 +36,7 @@ FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 async def lifespan(_app: FastAPI):
     db.init_db()
     seed.seed_if_empty()
+    seed.upgrade_route()        # 学习路线按 ROUTE_VERSION 幂等升级（保留已有进度）
     agent.recover_stale_runs()  # 清理进程崩溃后遗留的 running run
     agent.maybe_auto_review()   # 半自动提醒：有未复盘的过去计划 → 后台自动补一次复盘 run
     yield
