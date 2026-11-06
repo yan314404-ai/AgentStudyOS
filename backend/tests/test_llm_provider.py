@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import helpers  # noqa: F401 —— 先把 backend/ 加进 sys.path，单独跑本文件才不会 ModuleNotFoundError
 from app import llm
 from app.agent.llm_provider import AgentLLM
 
@@ -29,7 +30,9 @@ class AgentLLMTest(unittest.TestCase):
         self._config.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     def test_chat_delegates_and_accumulates(self):
-        with mock.patch("app.llm.chat_with_usage", return_value=("【测试】回复", 45)) as m:
+        usage = {"model": "deepseek-chat", "input_tokens": 30, "output_tokens": 15,
+                 "total_tokens": 45, "latency_ms": 800}
+        with mock.patch("app.llm.chat_with_detail", return_value=("【测试】回复", usage)) as m:
             provider = AgentLLM()
             text = provider.chat("system", "user")
         m.assert_called_once()
@@ -38,23 +41,50 @@ class AgentLLMTest(unittest.TestCase):
         self.assertEqual([a["role"] for a in args], ["system", "user"])
         self.assertEqual(text, "【测试】回复")
         self.assertEqual(provider.total_tokens, 45)
-        self.assertEqual(provider.model, llm.active_model())
+        self.assertEqual(provider.input_tokens, 30)
+        self.assertEqual(provider.output_tokens, 15)
+        self.assertEqual(provider.latency_ms, 800)
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(provider.model, "deepseek-chat")
 
     def test_structured_json_delegates_and_accumulates(self):
-        with mock.patch("app.llm.structured_json", return_value=({"ok": True}, 123)) as m:
+        usage = {"model": "deepseek-chat", "input_tokens": 100, "output_tokens": 23,
+                 "total_tokens": 123, "latency_ms": 1200}
+        with mock.patch("app.llm.structured_json_detail", return_value=({"ok": True}, usage)) as m:
             provider = AgentLLM()
             obj = provider.structured_json("sys", "user query")
         m.assert_called_once()
         self.assertEqual(obj, {"ok": True})
         self.assertEqual(provider.total_tokens, 123)
+        self.assertEqual(provider.input_tokens, 100)
 
     def test_tokens_accumulate_across_calls(self):
+        u1 = {"model": "deepseek-chat", "input_tokens": 8, "output_tokens": 2, "total_tokens": 10, "latency_ms": 100}
+        u2 = {"model": "deepseek-chat", "input_tokens": 15, "output_tokens": 5, "total_tokens": 20, "latency_ms": 200}
         provider = AgentLLM()
-        with mock.patch("app.llm.chat_with_usage", return_value=("a", 10)), \
-             mock.patch("app.llm.structured_json", return_value=({"ok": True}, 20)):
+        with mock.patch("app.llm.chat_with_detail", return_value=("a", u1)), \
+             mock.patch("app.llm.structured_json_detail", return_value=({"ok": True}, u2)):
             provider.chat("s", "u")
             provider.structured_json("s", "u")
         self.assertEqual(provider.total_tokens, 30)
+        self.assertEqual(provider.input_tokens, 23)
+        self.assertEqual(provider.output_tokens, 7)
+        self.assertEqual(provider.latency_ms, 300)
+        self.assertEqual(provider.calls, 2)
+
+    def test_usage_snapshot_has_cost(self):
+        """成本快照：token 真值 + 按价目表折算的人民币，且标注是否命中已知价。"""
+        usage = {"model": "deepseek-chat", "input_tokens": 1_000_000, "output_tokens": 0,
+                 "total_tokens": 1_000_000, "latency_ms": 500}
+        with mock.patch("app.llm.chat_with_detail", return_value=("x", usage)):
+            provider = AgentLLM()
+            provider.chat("s", "u")
+        snap = provider.usage_snapshot()
+        self.assertEqual(snap["input_tokens"], 1_000_000)
+        self.assertEqual(snap["total_tokens"], 1_000_000)
+        self.assertEqual(snap["cost_cny"], 2.0)   # deepseek 输入 2 元/百万 token
+        self.assertTrue(snap["price_known"])
+        self.assertEqual(snap["llm_calls"], 1)
 
     def test_init_model_is_active_model(self):
         self.write_config({"provider": "openai", "openai_api_key": "k", "openai_model": "gpt-4o"})

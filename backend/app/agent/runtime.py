@@ -42,19 +42,33 @@ class AgentRuntime:
         self.max_iterations = MAX_ITERATIONS
 
     # ---------- 入口 ----------
-    def run(self, goal: str, available_time: int = 0) -> str:
+    def run(self, goal: str, available_time: int = 0, intent: str = "") -> str:
         """同步执行（测试用）：建行 + 跑完 + 返回 run_id。全程不抛异常。"""
         run_id = gen_run_id()
-        RunRepo.create(run_id, goal, available_time, model=self.llm.model)
+        RunRepo.create(run_id, goal, available_time, model=self.llm.model, intent=intent)
         self._safe_execute(run_id, goal, available_time)
         return run_id
 
-    def run_async(self, goal: str, available_time: int = 0) -> str:
+    def run_async(self, goal: str, available_time: int = 0, intent: str = "") -> str:
         """后台线程执行（路由用）：建行后立即返回 run_id，循环在子线程跑。"""
         run_id = gen_run_id()
-        RunRepo.create(run_id, goal, available_time, model=self.llm.model)
+        RunRepo.create(run_id, goal, available_time, model=self.llm.model, intent=intent)
         threading.Thread(target=self._safe_execute, args=(run_id, goal, available_time), daemon=True).start()
         return run_id
+
+    def _usage_json(self) -> str:
+        """落库用量：total_tokens 保留旧字段（前端已依赖），同时带上输入/输出/成本/延迟明细。
+
+        usage_snapshot() 不可用时回退到只有 total_tokens 的旧格式，保证不因记账失败毁掉整次 run。
+        """
+        try:
+            snap = self.llm.usage_snapshot()
+        except Exception:  # noqa: BLE001 —— 记账是附加能力，不能影响主流程
+            snap = {}
+        if not isinstance(snap, dict) or not snap:
+            return json.dumps({"total_tokens": self.llm.total_tokens}, ensure_ascii=False)
+        snap.setdefault("total_tokens", self.llm.total_tokens)
+        return json.dumps(snap, ensure_ascii=False)
 
     def _safe_execute(self, run_id: str, goal: str, available_time: int) -> None:
         try:
@@ -124,7 +138,7 @@ class AgentRuntime:
             finished_at=now(),
             final_reply=final_reply,
             state_json=json.dumps(state.to_dict(), ensure_ascii=False),
-            token_usage_json=json.dumps({"total_tokens": self.llm.total_tokens}, ensure_ascii=False),
+            token_usage_json=self._usage_json(),
         )
 
     def _cancelled(self, run_id: str) -> bool:
@@ -166,7 +180,7 @@ class AgentRuntime:
             status="failed",
             finished_at=now(),
             error=message[:1000],
-            token_usage_json=json.dumps({"total_tokens": self.llm.total_tokens}, ensure_ascii=False),
+            token_usage_json=self._usage_json(),
         )
 
     # ---------- 最终回复 ----------

@@ -7,6 +7,7 @@ API key 存 backend/config.json（本机明文，不进数据库、不被 /api/b
 对外只暴露 chat / generate / chat_with_usage / structured_json / ping。
 """
 import json
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -106,6 +107,24 @@ class Provider:
             return int((usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0))
         usage = data.get("usage") or {}
         return int(usage.get("total_tokens") or 0)
+
+    def extract_usage(self, data) -> tuple:
+        """拆出 (输入 token, 输出 token)。成本估算要分开算，两家字段名不同。
+
+        OpenAI 兼容：usage.prompt_tokens / completion_tokens（老接口也叫 input/output_tokens）
+        Claude：usage.input_tokens / output_tokens
+        拿不到细分时回退 (0, total)，调用方据 total 兜底，不编造。
+        """
+        usage = data.get("usage") or {}
+        if self.id == "anthropic":
+            it = int(usage.get("input_tokens") or 0)
+            ot = int(usage.get("output_tokens") or 0)
+            return it, ot
+        it = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        ot = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+        if not it and not ot:
+            return 0, int(usage.get("total_tokens") or 0)
+        return it, ot
 
 
 def _merge_adjacent(messages: list) -> list:
@@ -242,6 +261,32 @@ def _chat(messages, temperature, timeout) -> tuple:
     return p.extract_text(data), p.extract_tokens(data)
 
 
+def _chat_detail(messages, temperature, timeout) -> tuple:
+    """同 _chat，但返回 (文本, {model, input_tokens, output_tokens, total_tokens, latency_ms})。
+
+    成本看板要输入/输出分开计价，所以单独走一条；老接口 chat_with_usage 签名不变。
+    """
+    p, key, model, base = _resolve()
+    t0 = time.time()
+    data = _http_post(
+        p.chat_url(base),
+        p.payload(model, messages, temperature),
+        p.headers(key),
+        p.label,
+        timeout,
+    )
+    latency_ms = int((time.time() - t0) * 1000)
+    it, ot = p.extract_usage(data)
+    total = p.extract_tokens(data) or (it + ot)
+    return p.extract_text(data), {
+        "model": model,
+        "input_tokens": it,
+        "output_tokens": ot,
+        "total_tokens": total,
+        "latency_ms": latency_ms,
+    }
+
+
 def chat(messages: list, temperature: float = 0.7, timeout: int = 60) -> str:
     """调用当前供应商的 chat 接口（支持多轮），返回回复文本。失败抛带中文信息的 RuntimeError。"""
     return _chat(messages, temperature, timeout)[0]
@@ -250,6 +295,11 @@ def chat(messages: list, temperature: float = 0.7, timeout: int = 60) -> str:
 def chat_with_usage(messages: list, temperature: float = 0.7, timeout: int = 60) -> tuple:
     """同 chat，但额外返回本次消耗的 token 数（AgentLLM 用它累计 usage）。"""
     return _chat(messages, temperature, timeout)
+
+
+def chat_with_detail(messages: list, temperature: float = 0.7, timeout: int = 60) -> tuple:
+    """同 chat，返回 (文本, usage 明细)。usage 含 model/输入输出 token/总 token/延迟毫秒。"""
+    return _chat_detail(messages, temperature, timeout)
 
 
 def generate(system: str, user: str, temperature: float = 0.7) -> str:
@@ -296,6 +346,16 @@ def structured_json(system: str, user: str, temperature: float = 0.2, timeout: i
     诚实标注：Claude 没有 json_object 原生模式，靠「system 强提示 + _extract_json 抽取兜底 + 重试」，
     失败会把内容预览上抛成中文 RuntimeError（Agent 页直接显示 ⚠️ 模型未返回合法 JSON…）。
     """
+    obj, usage = _structured_json_detail(system, user, temperature, timeout)
+    return obj, usage["total_tokens"]
+
+
+def structured_json_detail(system: str, user: str, temperature: float = 0.2, timeout: int = 90) -> tuple:
+    """同 structured_json，返回 (dict, usage 明细)。重试时的 token 累加，不丢账。"""
+    return _structured_json_detail(system, user, temperature, timeout)
+
+
+def _structured_json_detail(system: str, user: str, temperature: float, timeout: int) -> tuple:
     p, key, model, base = _resolve()
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if p.json_mode:
@@ -307,6 +367,8 @@ def structured_json(system: str, user: str, temperature: float = 0.2, timeout: i
         require_json, max_tokens = False, ANTHROPIC_MAX_TOKENS_JSON
 
     attempts = 0
+    t0 = time.time()
+    acc_in = acc_out = 0
     while True:
         data = _http_post(
             p.chat_url(base),
@@ -315,10 +377,19 @@ def structured_json(system: str, user: str, temperature: float = 0.2, timeout: i
             p.label,
             timeout,
         )
-        tokens = p.extract_tokens(data)
+        it, ot = p.extract_usage(data)
+        acc_in += it
+        acc_out += ot
         content = p.extract_text(data)
+        usage = {
+            "model": model,
+            "input_tokens": acc_in,
+            "output_tokens": acc_out,
+            "total_tokens": acc_in + acc_out or p.extract_tokens(data),
+            "latency_ms": int((time.time() - t0) * 1000),
+        }
         try:
-            return _extract_json(content), tokens
+            return _extract_json(content), usage
         except RuntimeError:
             attempts += 1
             if attempts > JSON_RETRY_TIMES:

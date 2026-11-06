@@ -211,13 +211,31 @@ function TraceStats({ run, events }) {
     ? fmtDur(new Date(run.finished_at) - new Date(run.started_at))
     : '运行中'
   const tools = events.filter((e) => e.event_type === 'tool_call').length
-  const tokens = run.token_usage?.total_tokens ?? '—'
+  const u = run.token_usage || {}
+  const tokens = u.total_tokens ?? '—'
+  const cost = u.cost_cny
   return (
     <div className="stat-grid">
       <div className="stat-chip"><span>⏱ 耗时</span><b>{dur}</b></div>
-      <div className="stat-chip"><span>🔢 Token</span><b>{tokens}</b></div>
+      <div className="stat-chip">
+        <span>🔢 Token</span>
+        <b>{tokens}</b>
+        {u.input_tokens !== undefined && (
+          <span style={{ fontSize: 11 }}>入 {u.input_tokens} / 出 {u.output_tokens}</span>
+        )}
+      </div>
+      <div className="stat-chip">
+        <span>💰 成本（估算）</span>
+        <b>{cost === undefined ? '—' : '¥' + Number(cost).toFixed(4)}</b>
+        {u.price_known === false && <span style={{ fontSize: 11 }}>单价未收录</span>}
+      </div>
       <div className="stat-chip"><span>🔄 迭代</span><b>{run.iteration}</b></div>
       <div className="stat-chip"><span>🛠️ 工具调用</span><b>{tools}</b></div>
+      <div className="stat-chip">
+        <span>📡 LLM 调用</span>
+        <b>{u.llm_calls ?? '—'}</b>
+        {u.latency_ms > 0 && <span style={{ fontSize: 11 }}>{(u.latency_ms / 1000).toFixed(1)} 秒</span>}
+      </div>
     </div>
   )
 }

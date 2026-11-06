@@ -66,6 +66,21 @@ const MEM_STATUS = {
   active: { text: '已生效', cls: 'memory-badge memory-badge-active' },
 }
 
+// Phase 5 意图识别（纯规则，零成本）：输入框里实时显示「这句话会被当成什么」，
+// 避免用户以为自己在查询、Agent 却按「安排计划」去写库。
+const INTENT_LABEL = {
+  plan: '安排计划', review: '复盘计划', record: '记录学习',
+  remember: '记住偏好', forget: '忘掉记忆', query: '查询状态', chat: '一般对话',
+}
+const INTENT_COLOR = {
+  plan: '#3b82f6', review: '#8b5cf6', record: '#10b981',
+  remember: '#f59e0b', forget: '#ef4444', query: '#06b6d4', chat: '#94a3b8',
+}
+const SLOT_LABEL = {
+  date: '日期', minutes: '时长', task_id: '任务', log_date: '记录日期',
+  plan_date: '计划日期', content: '内容', key: '关键词',
+}
+
 export default function Agent() {
   const [profile, setProfile] = useState({ goal: '', available_time: 3 })
   const [configured, setConfigured] = useState(true)
@@ -77,7 +92,9 @@ export default function Agent() {
   const [reminder, setReminder] = useState({ needs_review: false, message: '' })
   const [polling, setPolling] = useState(false)
   const [starting, setStarting] = useState(false)
+  const [intent, setIntent] = useState(null)
   const pollRef = useRef(null)
+  const intentTimer = useRef(null)
 
   const stopPolling = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
@@ -118,8 +135,19 @@ export default function Agent() {
     loadPlans()
     loadMemories()
     loadReminder()
-    return stopPolling
+    return () => { stopPolling(); if (intentTimer.current) clearTimeout(intentTimer.current) }
   }, [])
+
+  // 边打字边识别意图（防抖 350ms；纯规则零成本，不写库、不花钱）
+  const onGoalChange = (v) => {
+    setProfile({ ...profile, goal: v })
+    if (intentTimer.current) clearTimeout(intentTimer.current)
+    const text = v.trim()
+    if (!text) { setIntent(null); return }
+    intentTimer.current = setTimeout(() => {
+      api.post('/agent/intent', { text }).then(setIntent).catch(() => setIntent(null))
+    }, 350)
+  }
 
   const confirmPlan = async (id) => {
     try {
@@ -254,8 +282,20 @@ export default function Agent() {
               rows={2}
               placeholder="例如：分析我的学习状态，并提出明天计划"
               value={profile.goal}
-              onChange={(e) => setProfile({ ...profile, goal: e.target.value })}
+              onChange={(e) => onGoalChange(e.target.value)}
             />
+            {intent && profile.goal.trim() && (
+              <div className="intent-bar">
+                <span className="intent-badge" style={{ background: INTENT_COLOR[intent.intent] || '#94a3b8' }}>
+                  {intent.label}
+                </span>
+                <span>{intent.describe}</span>
+                {intent.missing?.length > 0 && (
+                  <span className="muted">还缺：{intent.missing.map((k) => SLOT_LABEL[k] || k).join('、')}（建议用「多轮对话」页补齐）</span>
+                )}
+                <span className="intent-conf">置信度 {Math.round((intent.confidence || 0) * 100)}%</span>
+              </div>
+            )}
             <div className="agent-time-row">
               <label>每天可用时间</label>
               <input
@@ -301,6 +341,11 @@ export default function Agent() {
             <h3>📋 {run.goal}</h3>
             <div className="run-status">
               <span className="badge" style={STATUS_STYLE[run.status] || {}}>{STATUS_LABEL[run.status] || run.status}</span>
+              {run.intent && (
+                <span className="intent-badge" style={{ background: INTENT_COLOR[run.intent] || '#94a3b8' }}>
+                  {INTENT_LABEL[run.intent] || run.intent}
+                </span>
+              )}
               {run.status === 'running' && <button className="btn ghost sm" onClick={cancel}>取消</button>}
               {run.iteration > 0 && <span className="muted">迭代 {run.iteration}</span>}
             </div>
@@ -354,6 +399,24 @@ export default function Agent() {
 
           {run.final_reply && (
             <div className="final-reply"><span className="final-icon">🎯</span><pre>{run.final_reply}</pre></div>
+          )}
+
+          {/* Phase 5：本次运行的用量明细（token 为 API 真实值，成本按公开单价估算） */}
+          {run.token_usage && (run.token_usage.total_tokens > 0) && (
+            <div className="run-usage">
+              <span>🔢 {run.token_usage.total_tokens} token</span>
+              {run.token_usage.input_tokens !== undefined && (
+                <span className="muted">入 {run.token_usage.input_tokens} / 出 {run.token_usage.output_tokens}</span>
+              )}
+              {run.token_usage.llm_calls !== undefined && <span className="muted">{run.token_usage.llm_calls} 次调用</span>}
+              {run.token_usage.latency_ms > 0 && <span className="muted">{(run.token_usage.latency_ms / 1000).toFixed(1)} 秒</span>}
+              {run.token_usage.cost_cny !== undefined && (
+                <span className="run-cost" title="按公开单价估算，仅供量级参考">
+                  ≈ ¥{(Number(run.token_usage.cost_cny) || 0).toFixed(4)}
+                </span>
+              )}
+              {run.token_usage.price_known === false && <span className="muted">（该模型单价未收录，按默认价估）</span>}
+            </div>
           )}
         </div>
       )}

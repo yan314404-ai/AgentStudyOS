@@ -16,7 +16,7 @@ STATUS_CANCELLED = "cancelled"
 # RunRepo.update 允许更新的列（白名单，防 SQL 注入）
 _FINISH_FIELDS = {
     "status", "model", "iteration", "finished_at", "state_json", "planner_output_json",
-    "final_reply", "reflection_json", "error", "token_usage_json",
+    "final_reply", "reflection_json", "error", "token_usage_json", "intent",
 }
 
 
@@ -30,12 +30,13 @@ def gen_run_id() -> str:
 
 class RunRepo:
     @staticmethod
-    def create(run_id: str, goal: str, available_time: int, model: str = "") -> None:
+    def create(run_id: str, goal: str, available_time: int, model: str = "",
+               intent: str = "") -> None:
         conn = connect()
         conn.execute(
-            "INSERT INTO agent_runs(run_id,goal,available_time,status,model,started_at,created_at)"
-            " VALUES(?,?,?,?,?,?,?)",
-            (run_id, goal, available_time, STATUS_RUNNING, model, now(), now()),
+            "INSERT INTO agent_runs(run_id,goal,available_time,status,model,intent,started_at,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (run_id, goal, available_time, STATUS_RUNNING, model, intent or "", now(), now()),
         )
         conn.commit()
         conn.close()

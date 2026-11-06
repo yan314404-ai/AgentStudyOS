@@ -313,6 +313,70 @@ MIGRATIONS = [
 
     ALTER TABLE agent_plan_items ADD COLUMN suggested_time TEXT NOT NULL DEFAULT '';
     """,
+    # v9: Phase 5 Agent 工程化 —— ① 意图识别 + 多轮对话管理 ② Agent 评测 + 成本看板
+    # 设计取舍：评测用例与结果落库（可复跑、可对比），对话状态落库（刷新/重启不丢槽位）
+    """
+    CREATE TABLE IF NOT EXISTS agent_conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conv_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active',      -- active / closed
+        pending_json TEXT NOT NULL DEFAULT '',      -- 待补槽位的意图（追问中），空串=无挂起
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_conversation_turns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conv_id TEXT NOT NULL,
+        role TEXT NOT NULL,                          -- user / assistant
+        content TEXT NOT NULL DEFAULT '',
+        intent_json TEXT NOT NULL DEFAULT '',        -- 该轮识别出的意图 + 槽位（user 轮才有）
+        run_id TEXT NOT NULL DEFAULT '',             -- 该轮触发的 agent run
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_conv_turns ON agent_conversation_turns(conv_id, id);
+
+    CREATE TABLE IF NOT EXISTS agent_eval_cases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL DEFAULT 'intent',         -- intent(纯规则零成本) / agent(真实 LLM 端到端)
+        goal TEXT NOT NULL,
+        available_time INTEGER NOT NULL DEFAULT 0,
+        expect_json TEXT NOT NULL DEFAULT '{}',      -- 断言：expect_intent/expect_tools/forbid_tools/expect_keywords
+        note TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_eval_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        eval_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'running',      -- running / succeeded / failed
+        total INTEGER NOT NULL DEFAULT 0,
+        passed INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        error TEXT NOT NULL DEFAULT '',
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_cny REAL NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_eval_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        eval_id TEXT NOT NULL,
+        case_id INTEGER NOT NULL DEFAULT 0,
+        case_name TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT '',
+        passed INTEGER NOT NULL DEFAULT 0,
+        detail_json TEXT NOT NULL DEFAULT '{}',      -- {reasons, run_id, tools, tokens, cost_cny, latency_ms}
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_eval_results ON agent_eval_results(eval_id, id);
+
+    ALTER TABLE agent_runs ADD COLUMN intent TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 

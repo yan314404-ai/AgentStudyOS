@@ -14,6 +14,8 @@ import Reports from './pages/Reports.jsx'
 import Summaries from './pages/Summaries.jsx'
 import Chat from './pages/Chat.jsx'
 import Agent from './pages/Agent.jsx'
+import Dialog from './pages/Dialog.jsx'
+import Eval from './pages/Eval.jsx'
 import Trace from './pages/Trace.jsx'
 import Settings from './pages/Settings.jsx'
 
@@ -28,6 +30,8 @@ const NAV = [
   { key: 'summaries', label: '每日总结', icon: '📝' },
   { key: 'reports', label: '报告', icon: '📈' },
   { key: 'agent', label: 'Agent', icon: '🤖' },
+  { key: 'dialog', label: '多轮对话', icon: '💭' },
+  { key: 'eval', label: '评测 / 成本', icon: '🧪' },
   { key: 'trace', label: 'Trace', icon: '📜' },
   { key: 'chat', label: 'AI 助手', icon: '💬' },
   { key: 'settings', label: '设置', icon: '⚙️' },
@@ -45,6 +49,8 @@ const PAGE_TITLES = {
   summaries: '每日总结',
   reports: '报告',
   agent: 'Agent 自主规划',
+  dialog: '多轮对话',
+  eval: '评测与成本看板',
   trace: 'Agent 运行回放',
   chat: 'AI 助手',
   settings: '设置',
@@ -161,6 +167,8 @@ export default function App() {
         {page === 'summaries' && <Summaries />}
         {page === 'reports' && <Reports />}
         {page === 'agent' && <Agent />}
+        {page === 'dialog' && <Dialog />}
+        {page === 'eval' && <Eval />}
         {page === 'trace' && <Trace />}
         {page === 'chat' && <Chat />}
         {page === 'settings' && <Settings />}
